@@ -233,4 +233,19 @@ clean:
 		"$(BUILD_DIR)/$(IMAGE_NAME).map" \
 		"$(BUILD_DIR)/$(IMAGE_NAME).srec"
 
-.PHONY: all clean
+# Debug target
+debug:
+	arm-none-eabi-gdb \
+		$(BUILD_DIR)/$(IMAGE_NAME).elf
+
+# Install target
+install:
+	arm-none-eabi-gdb \
+		--batch \
+		--eval-command="monitor reset halt" \
+		--eval-command="load" \
+		--eval-command="compare-sections" \
+		--eval-command="monitor reset run" \
+		$(BUILD_DIR)/$(IMAGE_NAME).elf
+
+.PHONY: all clean debug install
