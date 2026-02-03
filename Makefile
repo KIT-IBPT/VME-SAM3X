@@ -174,15 +174,15 @@ LDFLAGS := \
 	-mcpu=cortex-m3 -Wl,--entry=Reset_Handler -Wl,--cref -mthumb \
 	-T$(LOADER) --specs=nano.specs
 
+# All target
+all: $(OUTPUT_FILE_PATH) $(ADDITIONAL_DEPENDENCIES)
+
 # Include dependency files
 ifneq ($(MAKECMDGOALS),clean)
 ifneq ($(strip $(C_DEPS)),)
 -include $(C_DEPS)
 endif
 endif
-
-# All target
-all: $(OUTPUT_FILE_PATH) $(ADDITIONAL_DEPENDENCIES)
 
 # Generic rule for compiling C files
 $(OBJS): $(BUILD_DIR)/%.o: src/%.c
