@@ -97,6 +97,8 @@ ADDITIONAL_DEPENDENCIES :=
 LIB_DEP := 
 LINKER_SCRIPT_DEP := $(LOADER)
 
+COMPILER_VERSION = $(shell arm-none-eabi-gcc -dumpversion)
+
 # Common compiler flags
 COMMON_FLAGS := \
 	-x c -mthumb -D__SAM3X8H__ -DDEBUG -DUDP_USED=1 -Dprintf=iprintf \
@@ -187,7 +189,7 @@ endif
 # Generic rule for compiling C files
 $(OBJS): $(BUILD_DIR)/%.o: src/%.c
 	@echo Building file: $<
-	@echo Invoking: ARM/GNU C Compiler : 6.3.1
+	@echo Invoking: ARM/GNU C Compiler : $(COMPILER_VERSION)
 	@mkdir -p $(dir $@)
 	arm-none-eabi-gcc $(COMMON_FLAGS) $(INCLUDE_PATHS) $(CFLAGS) \
 		-MD -MP -MF "$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -MT"$(@:%.o=%.o)" \
@@ -197,7 +199,7 @@ $(OBJS): $(BUILD_DIR)/%.o: src/%.c
 # Linking
 $(OUTPUT_FILE_PATH): $(OBJS) $(LIB_DEP) $(LINKER_SCRIPT_DEP)
 	@echo Building target: $@
-	@echo Invoking: ARM/GNU Linker : 6.3.1
+	@echo Invoking: ARM/GNU Linker : $(COMPILER_VERSION)
 	arm-none-eabi-gcc -o $(OUTPUT_FILE_PATH) $(OBJS) $(LDFLAGS)
 	@echo Finished building target: $@
 	arm-none-eabi-objcopy \
