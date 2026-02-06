@@ -114,9 +114,11 @@ void udp_server_callback(void *arg, struct udp_pcb *upcb,
   struct udphdr *sHdr;
   int i;
   
+#ifdef DEBUG_UDP
   printf("UDP packet received %d bytes.\r\n", p->len);
   for (i = 0; i < p->len; i++)
     printf("%02X ", *((char *) p->payload + i));
+#endif // DEBUG_UDP
 
   sHdr = p->payload;
   sHdr->status = 0;
