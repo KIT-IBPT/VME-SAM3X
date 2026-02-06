@@ -20,15 +20,17 @@
 #define MRF_OUI_2      (0xB2)
 
 void fpga_twi_init(void);
-void fpga_test_write(void);
+void fpga_twi_reset(void);
 
-void fpga_write_command(uint8_t command);
-void fpga_write_opb_address(uint32_t address);
-uint32_t fpga_read_data();
-uint32_t fpga_read_byte(uint32_t address);
-uint32_t fpga_read_short(uint32_t address);
-uint32_t fpga_read_long(uint32_t address);
-void fpga_write_byte(uint32_t address, uint32_t data);
-void fpga_write_short(uint32_t address, uint32_t data);
-void fpga_write_long(uint32_t address, uint32_t data);
+uint32_t fpga_test_write(void);
+
+uint32_t fpga_write_command(uint8_t command);
+uint32_t fpga_write_opb_address(uint32_t address);
+uint32_t fpga_read_data(uint32_t *data);
+uint32_t fpga_read_byte(uint32_t address, uint8_t *data);
+uint32_t fpga_read_short(uint32_t address, uint16_t *data);
+uint32_t fpga_read_long(uint32_t address, uint32_t *data);
+uint32_t fpga_write_byte(uint32_t address, uint8_t data);
+uint32_t fpga_write_short(uint32_t address, uint16_t data);
+uint32_t fpga_write_long(uint32_t address, uint32_t data);
 

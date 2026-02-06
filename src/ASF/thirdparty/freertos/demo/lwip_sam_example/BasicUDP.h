@@ -77,6 +77,11 @@ struct  udphdr {
 #define FPGA_READ_ACCESS 0x0001
 #define FPGA_WRITE_ACCESS 0x0002
 
+#define FPGA_STATUS_OK 0x00
+#define FPGA_STATUS_INVALID_ADDR 0xff
+#define FPGA_STATUS_TIMEOUT 0xfe
+#define FPGA_STATUS_INVALID_CMD 0xfd
+
 /* The function that implements the UDP server task. */
 portTASK_FUNCTION_PROTO( vBasicUDPServer, pvParameters );
 

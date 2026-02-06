@@ -74,6 +74,7 @@ extern "C" {
 #define TWI_SEND_NACK            7
 #define TWI_BUSY                 8
 #define TWI_ERROR_TIMEOUT        9
+#define TWI_ERROR_TIMEOUT_COMP  10
 /**
  * @}
  */

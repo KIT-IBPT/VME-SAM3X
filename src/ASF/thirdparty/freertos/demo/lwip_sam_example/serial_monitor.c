@@ -207,40 +207,68 @@ void task_serial(void *pvParameters)
 	    putchar(' ');
 	    if (serial_hexread32(&cmd))
 	      {
-		printf("\r\nCommand %02X", cmd);
-		fpga_write_command(cmd);
+		printf("\r\nCommand %02lX", cmd);
+		if (fpga_write_command(cmd)) {
+		  printf("...failed");
+		}
 	      }
 	    break;
 	  }
 	case 'W':
 	  printf("\r\nWrite OPB Address");
-	  fpga_write_opb_address(x);
+	  if (fpga_write_opb_address(x)) {
+	    printf("...failed");
+	  }
 	  break;
 	case 'R':
-	  fpga_read_data();
-	  break;
+	  {
+	    uint32_t data;
+	    fpga_read_data(&data);
+	    break;
+	  }
 	case 'D':
 	  {
 	    int i;
 
 	    x = x & (-size);
-	    printf("\r\n%08X:", x);
+	    printf("\r\n%08lX:", x);
 	    for (i = 0; i < 16; i+=size)
 	      {
 		switch(size)
 		  {
 		  case 1:
-		    printf(" %02X", fpga_read_byte(x));
-		    x++;
-		    break;
+		    {
+		      uint8_t data;
+		      if (fpga_read_byte(x, &data)) {
+			printf(" failed");
+		      } else {
+		        printf(" %02hhX", data);
+		      }
+		      x++;
+		      break;
+		    }
 		  case 2:
-		    printf(" %04X", fpga_read_short(x));
-		    x += 2;
-		    break;
+		    {
+		      uint16_t data;
+		      if (fpga_read_short(x, &data)) {
+			printf(" failed");
+		      } else {
+		        printf(" %04hX", data);
+		      }
+		      x += 2;
+		      break;
+		    }
 		  case 4:
-		    printf(" %08X", fpga_read_long(x));
-		    x += 4;
-		    break;
+		    {
+		      uint32_t data;
+		      if (fpga_read_long(x, &data)) {
+			printf(" failed");
+		      } else {
+		        printf(" %08lX", data);
+		      }
+		      x += 4;
+		      break;
+		    }
 		  }
 	      }
 	    break;
@@ -251,11 +279,11 @@ void task_serial(void *pvParameters)
 	    uint32_t *p = (uint32_t *) x;
 
 	    x = x & (-size);
-	    printf("\r\n%08X:", x);
+	    printf("\r\n%08lX:", x);
 	    for (i = 0; i < 16; i+=size)
 	      {
 		p = (uint32_t *) x;
-		printf(" %08X", *p);
+		printf(" %08lX", *p);
 		x += 4;
 	      }
 	    break;
@@ -266,18 +294,39 @@ void task_serial(void *pvParameters)
 	    uint32_t *p = (uint32_t *) x;
 	    
 	    x = x & (-size);
-	    printf("\r\n%08X: ", x);
+	    printf("\r\n%08lX: ", x);
 	    switch(size)
 	      {
 	      case 1:
-		printf(" %02X", fpga_read_byte(x));
-		break;
+		{
+		  uint8_t data;
+		  if (fpga_read_byte(x, &data)) {
+		    printf(" failed");
+		  } else {
+		    printf(" %02hhX", data);
+		  }
+		  break;
+		}
 	      case 2:
-		printf(" %04X", fpga_read_short(x));
-		break;
+		{
+		  uint16_t data;
+		  if (fpga_read_short(x, &data)) {
+		    printf(" failed");
+		  } else {
+		    printf(" %04hX", data);
+		  }
+		  break;
+		}
 	      case 4:
-		printf(" %08X", fpga_read_long(x));
-		break;
+		{
+		  uint32_t data;
+		  if (fpga_read_long(x, &data)) {
+		    printf(" failed");
+		  } else {
+		    printf(" %08lX", data);
+		  }
+		  break;
+		}
 	      }
 	    printf(" ? ");
 	    if (serial_hexread32(&d))
@@ -285,10 +334,10 @@ void task_serial(void *pvParameters)
 		switch(size)
 		  {
 		  case 1:
-		    fpga_write_byte(x, d);
+		    fpga_write_byte(x, (uint8_t) d & 0xff);
 		    break;
 		  case 2:
-		    fpga_write_short(x, d);
+		    fpga_write_short(x, (uint16_t) d & 0xffff);
 		    break;
 		  case 4:
 		    fpga_write_long(x, d);
@@ -303,14 +352,16 @@ void task_serial(void *pvParameters)
 	    uint32_t *p = (uint32_t *) x;
 	    
 	    x = x & (-size);
-	    printf("\r\n%08X: %08X ? ", x, *p);
+	    printf("\r\n%08lX: %08lX ? ", x, *p);
 	    if (serial_hexread32(&d))
 	      *p = d;
 	  }
 	  break;
 	case 'T':
 	  printf(" Test write TWI");
-	  fpga_test_write();
+	  if (fpga_test_write()) {
+	    printf("...failed");
+	  }
 	  break;
 	case 'E':
 	  printf("Erase Setup Flash ");
@@ -401,7 +452,9 @@ void task_serial(void *pvParameters)
 	    {
 	    case 'T':
 	      printf(" Test write TWI");
-	      fpga_test_write();
+	      if (fpga_test_write()) {
+		printf("...failed")
+	      }
 	      break;
 	    default:
 	      break;
