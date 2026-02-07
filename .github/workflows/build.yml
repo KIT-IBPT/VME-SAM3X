@@ -1,0 +1,22 @@
+name: build
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Install dependencies
+        run:
+          sudo apt-get update
+          && sudo apt-get install -y --no-install-recommends
+          gcc-arm-none-eabi libnewlib-arm-none-eabi make
+      - name: Build
+        run: make all
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: sam3x-firmware
+          path: |
+            build/EVM_300_UDP.bin
+            build/EVM_300_UDP.elf
