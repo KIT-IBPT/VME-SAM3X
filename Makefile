@@ -225,7 +225,7 @@ $(OUTPUT_FILE_PATH): $(OBJS) $(LIB_DEP) $(LINKER_SCRIPT_DEP)
 clean:
 	-$(RM) $(OBJS)
 	-$(RM) $(C_DEPS)
-	rm -rf \
+	-$(RM) \
 		"$(BUILD_DIR)/$(IMAGE_NAME).a" \
 		"$(BUILD_DIR)/$(IMAGE_NAME).bin" \
 		"$(BUILD_DIR)/$(IMAGE_NAME).eep" \
@@ -234,6 +234,7 @@ clean:
 		"$(BUILD_DIR)/$(IMAGE_NAME).lss" \
 		"$(BUILD_DIR)/$(IMAGE_NAME).map" \
 		"$(BUILD_DIR)/$(IMAGE_NAME).srec"
+	-$(RM) "$(BUILD_DIR)"
 
 # Debug target
 debug:
