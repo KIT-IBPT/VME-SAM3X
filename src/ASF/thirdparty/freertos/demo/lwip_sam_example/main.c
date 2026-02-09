@@ -271,7 +271,9 @@ static void task_simpleserial(void *pvParameters)
 	    {
 	    case 'T':
 	      printf(" Test write TWI");
-	      fpga_test_write();
+	      if (fpga_test_write()) {
+		printf("...failed");
+	      }
 	      break;
 	    }
 	  printf("%c %02X\r\n> ", received_byte, received_byte);

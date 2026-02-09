@@ -114,21 +114,30 @@ void udp_server_callback(void *arg, struct udp_pcb *upcb,
   struct udphdr *sHdr;
   int i;
   
+#ifdef DEBUG_UDP
   printf("UDP packet received %d bytes.\r\n", p->len);
   for (i = 0; i < p->len; i++)
     printf("%02X ", *((char *) p->payload + i));
+#endif // DEBUG_UDP
 
   sHdr = p->payload;
-  sHdr->status = 0;
+  sHdr->status = FPGA_STATUS_OK;
   if (sHdr->access_type == FPGA_WRITE_ACCESS)
     {
-      short data = htons(sHdr->data);
-      fpga_write_short(ntohl(sHdr->addr), data);
+      uint16_t data = htons(sHdr->data);
+      if (fpga_write_short(ntohl(sHdr->addr), data)) {
+	sHdr->status = FPGA_STATUS_TIMEOUT;
+      }
     }
   if (!sHdr->status && (sHdr->access_type == FPGA_WRITE_ACCESS ||
 			sHdr->access_type == FPGA_READ_ACCESS))
     {
-      sHdr->data = htons(fpga_read_short(ntohl(sHdr->addr)));
+      uint16_t data;
+      if (fpga_read_short(ntohl(sHdr->addr), &data)) {
+	sHdr->status = FPGA_STATUS_TIMEOUT;
+      } else {
+	sHdr->data = htons(data);
+      }
     }
 
   udp_sendto(upcb, p, addr, port);
@@ -189,16 +198,23 @@ portTASK_FUNCTION( vBasicUDPServer, pvParameters )
         if ( lDataLen < 0) {
 
         } else {
-	  sHdr->status = 0;
+	  sHdr->status = FPGA_STATUS_OK;
 	  if (sHdr->access_type == FPGA_WRITE_ACCESS)
 	    {
 	      short data = htons(sHdr->data);
-	      fpga_write_short(ntohl(sHdr->addr), &data);
+	      if (fpga_write_short(ntohl(sHdr->addr), &data)) {
+		sHdr->status = FPGA_STATUS_TIMEOUT;
+	      }
 	    }
 	  if (!sHdr->status && (sHdr->access_type == FPGA_WRITE_ACCESS ||
 				sHdr->access_type == FPGA_READ_ACCESS))
 	    {
-	      sHdr->data = htons(fpga_read_short(ntohl(sHdr->addr)));
+	      uint16_t data;
+	      if (fpga_read_short(ntohl(sHdr->addr), &data)) {
+		sHdr->status = FPGA_STATUS_TIMEOUT;
+	      } else {
+		sHdr->data = htons(data);
+	      }
 	    }
 
 	  sendto(lSocket, sHdr, sizeof(cData), 0, (struct sockaddr *)&sFromAddr, lFromLen);

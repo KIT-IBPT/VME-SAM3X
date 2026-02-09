@@ -235,8 +235,11 @@ static void prvtelnet_Connection( struct netconn *pxNetCon )
 			      strcpy( cTelnetPage, cStrLen);
 			      for (n = 0; n < 16; n+=2)
 				{
-				  test = fpga_read_short(lptr);
-				  sprintf(cStrLen, " %04x", test);
+				  if (fpga_read_short(lptr, &test)) {
+				    sprintf(cStrLen, " failed");
+				  } else {
+				    sprintf(cStrLen, " %04x", test);
+				  }
 				  strcat( cTelnetPage, cStrLen);
 				  lptr += 2;
 				}
@@ -277,14 +280,17 @@ static void prvtelnet_Connection( struct netconn *pxNetCon )
 				  st = linebuf_set_u32(linebuf, st, &data32);
 				  if (st > 0)
 				    {
-				      sprintf(cStrLen, " write %04x, read", data32);
+				      sprintf(cStrLen, " write %04lx, read", data32);
 				      strcat( cTelnetPage, cStrLen);
 				      netconn_write( pxNetCon, cTelnetPage, (u16_t) strlen( cTelnetPage ), NETCONN_COPY );
 				      cTelnetPage[0] = 0;
-				      fpga_write_short(addr, data32);
+				      fpga_write_short(addr, (uint16_t) data32 & 0xffff);
 				    }
-				  test = fpga_read_short(addr);
-				  sprintf(cStrLen, " %04x\r\n", test);
+				  if (fpga_read_short(addr, &test)) {
+				    sprintf(cStrLen, " failed\r\n");
+				  } else {
+				    sprintf(cStrLen, " %04x\r\n", test);
+				  }
 				  strcat( cTelnetPage, cStrLen);
 				}
 			    break;
