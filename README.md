@@ -150,7 +150,14 @@ The *reserved* field in version 2 of the protocol is not used at the moment and
 should be set to zero in requests.
 
 The *address* field specifies the address of the requested register inside the
-FPGA.
+FPGA. Depending on the address space that shall be accessed the following
+offsets need to be applied (please note that these values are only valid for
+the VME-EVM-300 and VME-EVR-300, other devices may use different offsets):
+
+Offset    |Address space
+----------|------------------------
+0x00000000|VME CR/CSR address space
+0x80000000|EVM or EVR address space
 
 The *reference* field in a request can contain an arbitrary number chosen by
 the client. Each response contains the *reference*  value from the respective
