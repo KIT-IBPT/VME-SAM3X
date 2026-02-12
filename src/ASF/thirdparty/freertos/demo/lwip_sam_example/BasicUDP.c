@@ -84,21 +84,6 @@
 #include <lwip/sockets.h>
 #include <lwip/sys.h>
 #include <lwip/udp.h>
-#if 0
-#include "lwip/api.h"
-#include "lwip/tcpip.h"
-#include "lwip/memp.h"
-#include "lwip/stats.h"
-#include "lwip/opt.h"
-#include "lwip/api.h"
-#include "lwip/arch.h"
-#include "lwip/sys.h"
-#include "lwip/init.h"
-#if ( (LWIP_VERSION) == ((1U << 24) | (3U << 16) | (2U << 8) | (LWIP_VERSION_RC)) )
-#include "netif/loopif.h"
-#endif
-#include "lwip/sockets.h"
-#endif
 
 #define O_WRONLY 1
 #define O_RDONLY 2
@@ -108,40 +93,111 @@
 #define UDP_PORT    ( 2000 )
 
 void udp_server_callback(void *arg, struct udp_pcb *upcb,
-			 struct pbuf *p, struct ip_addr *addr,
-			 u16_t port)
+                         struct pbuf *p, struct ip_addr *addr,
+                         u16_t port)
 {
   struct udphdr *sHdr;
-  int i;
-  
+  int protocol_version;
+
 #ifdef DEBUG_UDP
   printf("UDP packet received %d bytes.\r\n", p->len);
-  for (i = 0; i < p->len; i++)
+  for (int i = 0; i < p->len; i++)
     printf("%02X ", *((char *) p->payload + i));
 #endif // DEBUG_UDP
 
+  // Our implementation cannot handle multi-buffer chains. We do not expect
+  // such a chain because the packets are very short, but if we encounter it,
+  // we ignore the packet now so that we do not get unexpected behavior later.
+  if (p->next)
+    {
+#ifdef DEBUG_UDP
+      printf(
+        "Received unexpected multi-buffer packet of total length %hd "
+        "bytes.\r\n",
+        p->tot_len
+      );
+#endif // DEBUG_UDP
+      goto cleanup;
+    }
+
+  // The length of the UDP packet depends on the protocol version. Version 1
+  // packets have 12 bytes, version 2 packets have 16 bytes. Everything else
+  // indicates a malformed packet that we ignore.
+  if (p->len == 12)
+    protocol_version = 1;
+  else if (p->len == 16)
+    protocol_version = 2;
+  else
+    {
+#ifdef DEBUG_UDP
+      printf(
+        "Ignoring packet with unexpected length of %hd bytes\r\n",
+        p->len
+      );
+#endif // DEBUG_UDP
+      goto cleanup;
+    }
+
   sHdr = p->payload;
   sHdr->status = FPGA_STATUS_OK;
-  if (sHdr->access_type == FPGA_WRITE_ACCESS)
+  if (sHdr->access_type == FPGA_WRITE_ACCESS_16)
     {
-      uint16_t data = htons(sHdr->data);
+      uint16_t data;
+      if (protocol_version == 1)
+        data = ntohs(sHdr->data_v1);
+      else if (protocol_version == 2)
+        data = (uint16_t) ntohl(sHdr->data_v2);
       if (fpga_write_short(ntohl(sHdr->addr), data)) {
-	sHdr->status = FPGA_STATUS_TIMEOUT;
+        sHdr->status = FPGA_STATUS_TIMEOUT;
+        goto send_reply;
       }
     }
-  if (!sHdr->status && (sHdr->access_type == FPGA_WRITE_ACCESS ||
-			sHdr->access_type == FPGA_READ_ACCESS))
+  else if (sHdr->access_type == FPGA_WRITE_ACCESS_32)
+    {
+      if (protocol_version == 1) {
+        sHdr->status = FPGA_STATUS_INVALID_CMD;
+        goto send_reply;
+      }
+      uint32_t data = ntohl(sHdr->data_v2);
+      if (fpga_write_long(ntohl(sHdr->addr), data)) {
+        sHdr->status = FPGA_STATUS_TIMEOUT;
+      }
+    }
+  if (sHdr->access_type == FPGA_WRITE_ACCESS_16 ||
+      sHdr->access_type == FPGA_READ_ACCESS_16)
     {
       uint16_t data;
       if (fpga_read_short(ntohl(sHdr->addr), &data)) {
-	sHdr->status = FPGA_STATUS_TIMEOUT;
-      } else {
-	sHdr->data = htons(data);
+        sHdr->status = FPGA_STATUS_TIMEOUT;
+      } else if (protocol_version == 1) {
+        sHdr->data_v1 = htons(data);
+      } else if (protocol_version == 2) {
+        sHdr->data_v2 = htonl((uint32_t) data);
       }
     }
+  else if (sHdr->access_type == FPGA_WRITE_ACCESS_32 ||
+        sHdr->access_type == FPGA_READ_ACCESS_32)
+    {
+      uint32_t data;
+      if (protocol_version == 1) {
+        sHdr->status = FPGA_STATUS_INVALID_CMD;
+        goto send_reply;
+      }
+      if (fpga_read_long(ntohl(sHdr->addr), &data)) {
+        sHdr->status = FPGA_STATUS_TIMEOUT;
+      }
+      sHdr->data_v2 = htonl(data);
+    }
+  else
+    {
+      sHdr->status = FPGA_STATUS_INVALID_CMD;
+      goto send_reply;
+    }
 
+send_reply:
   udp_sendto(upcb, p, addr, port);
-  
+
+cleanup:
   pbuf_free(p);
 }
 
@@ -167,13 +223,13 @@ portTASK_FUNCTION( vBasicUDPServer, pvParameters )
         // Create socket
         lSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
         if (lSocket < 0) {
-	  printf("Cannot create socket %d\r\n", lSocket);
-	  vTaskDelay(1000);
-	  /*            return; */
+          printf("Cannot create socket %d\r\n", lSocket);
+          vTaskDelay(1000);
+          /*            return; */
         }
       }
       while (lSocket < 0);
-	
+
         memset((char *)&sLocalAddr, 0, sizeof(sLocalAddr));
         sLocalAddr.sin_family = AF_INET;
         sLocalAddr.sin_len = sizeof(sLocalAddr);
@@ -182,7 +238,7 @@ portTASK_FUNCTION( vBasicUDPServer, pvParameters )
 
         if (bind(lSocket, (struct sockaddr *)&sLocalAddr, sizeof(sLocalAddr)) < 0) {
             // Problem setting up my end
-	  printf("Cannot bind to UDP port.\r\n");
+          printf("Cannot bind to UDP port.\r\n");
             close(lSocket);
             return;
         }
@@ -193,34 +249,34 @@ portTASK_FUNCTION( vBasicUDPServer, pvParameters )
         lDataLen = recvfrom(lSocket, sHdr, lRecvLen, 0,
                             (struct sockaddr *)&sFromAddr, &lFromLen);
 
-	printf("Received UDP packet, size %d\r\n", lDataLen);
-	
+        printf("Received UDP packet, size %d\r\n", lDataLen);
+
         if ( lDataLen < 0) {
 
         } else {
-	  sHdr->status = FPGA_STATUS_OK;
-	  if (sHdr->access_type == FPGA_WRITE_ACCESS)
-	    {
-	      short data = htons(sHdr->data);
-	      if (fpga_write_short(ntohl(sHdr->addr), &data)) {
-		sHdr->status = FPGA_STATUS_TIMEOUT;
-	      }
-	    }
-	  if (!sHdr->status && (sHdr->access_type == FPGA_WRITE_ACCESS ||
-				sHdr->access_type == FPGA_READ_ACCESS))
-	    {
-	      uint16_t data;
-	      if (fpga_read_short(ntohl(sHdr->addr), &data)) {
-		sHdr->status = FPGA_STATUS_TIMEOUT;
-	      } else {
-		sHdr->data = htons(data);
-	      }
-	    }
+          sHdr->status = FPGA_STATUS_OK;
+          if (sHdr->access_type == FPGA_WRITE_ACCESS)
+            {
+              short data = htons(sHdr->data);
+              if (fpga_write_short(ntohl(sHdr->addr), &data)) {
+                sHdr->status = FPGA_STATUS_TIMEOUT;
+              }
+            }
+          if (!sHdr->status && (sHdr->access_type == FPGA_WRITE_ACCESS ||
+                                sHdr->access_type == FPGA_READ_ACCESS))
+            {
+              uint16_t data;
+              if (fpga_read_short(ntohl(sHdr->addr), &data)) {
+                sHdr->status = FPGA_STATUS_TIMEOUT;
+              } else {
+                sHdr->data = htons(data);
+              }
+            }
 
-	  sendto(lSocket, sHdr, sizeof(cData), 0, (struct sockaddr *)&sFromAddr, lFromLen);
-	}
+          sendto(lSocket, sHdr, sizeof(cData), 0, (struct sockaddr *)&sFromAddr, lFromLen);
+        }
 
-	close(lSocket); // so that other servers can bind to the UDP socket
+        close(lSocket); // so that other servers can bind to the UDP socket
 
     }
 }

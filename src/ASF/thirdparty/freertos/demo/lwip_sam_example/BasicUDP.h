@@ -49,6 +49,8 @@
 #ifndef BASIC_UDP_SERVER_H
 #define BASIC_UDP_SERVER_H
 
+#include <lwip/arch.h>
+
 #include "portmacro.h"
 
 /* netdb.h */
@@ -60,27 +62,32 @@ int s_port; /* port number */
 char *s_proto; /* protocol to use */
 };
 
-#if (__ICCAVR32__ || __ICCARM__)
-#pragma pack(1)
+#ifdef PACK_STRUCT_USE_INCLUDES
+#  include "arch/bpstruct.h"
 #endif
-struct  udphdr {
-  char   access_type;
-  char   status;
-  short  data;
-  long  addr;
-  long  ref;
-};
-#if (__ICCAVR32__ || __ICCARM__)
-#pragma pack()
+PACK_STRUCT_BEGIN
+struct udphdr {
+  PACK_STRUCT_FIELD(uint8_t access_type);
+  PACK_STRUCT_FIELD(int8_t status);
+  PACK_STRUCT_FIELD(uint16_t data_v1);
+  PACK_STRUCT_FIELD(uint32_t addr);
+  PACK_STRUCT_FIELD(uint32_t ref);
+  PACK_STRUCT_FIELD(uint32_t data_v2);
+} PACK_STRUCT_STRUCT;
+PACK_STRUCT_END
+#ifdef PACK_STRUCT_USE_INCLUDES
+#  include "arch/epstruct.h"
 #endif
 
-#define FPGA_READ_ACCESS 0x0001
-#define FPGA_WRITE_ACCESS 0x0002
+#define FPGA_READ_ACCESS_16 0x01
+#define FPGA_WRITE_ACCESS_16 0x02
+#define FPGA_READ_ACCESS_32 0x03
+#define FPGA_WRITE_ACCESS_32 0x04
 
-#define FPGA_STATUS_OK 0x00
-#define FPGA_STATUS_INVALID_ADDR 0xff
-#define FPGA_STATUS_TIMEOUT 0xfe
-#define FPGA_STATUS_INVALID_CMD 0xfd
+#define FPGA_STATUS_OK 0
+#define FPGA_STATUS_INVALID_ADDR -1
+#define FPGA_STATUS_TIMEOUT -2
+#define FPGA_STATUS_INVALID_CMD -3
 
 /* The function that implements the UDP server task. */
 portTASK_FUNCTION_PROTO( vBasicUDPServer, pvParameters );
