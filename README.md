@@ -125,8 +125,10 @@ supports two access types:
 
 Protocol version 2 supports two additional access types:
 
-- `3`: read from 32-bit register
-- `4`: write to 32-bit register
+- `3`: write to 16-bit register and do not read back
+- `4`: read from 32-bit register
+- `5`: write to 32-bit register
+- `6`: write to 32-bit register and do not read back
 
 It is still possible to read from and write to 32-bit registers using version 1
 of the protocol, but this requires two round-trips: For read operations, the
@@ -167,6 +169,7 @@ The *data* field contains the value that is supposed to be written (for
 write requests) or the value that has been read (for responses). For read
 requests, the value in this field is ignored. For responses to write requests,
 this is not the value that has been written but rather the value that was read
-back from the register after a successful write operation. If the *status*
-field of a response is non-zero, the value in the *data* field is invalid and
-should not be used.
+back from the register after a successful write operation, unless the “no
+readback” variant of the write operation was used. If the *status* field of a 
+response is non-zero, the value in the *data* field is invalid and should not
+be used.

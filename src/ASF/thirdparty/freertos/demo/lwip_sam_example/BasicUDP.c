@@ -140,7 +140,8 @@ void udp_server_callback(void *arg, struct udp_pcb *upcb,
 
   sHdr = p->payload;
   sHdr->status = FPGA_STATUS_OK;
-  if (sHdr->access_type == FPGA_WRITE_ACCESS_16)
+  if (sHdr->access_type == FPGA_WRITE_ACCESS_16 ||
+      sHdr->access_type == FPGA_WRITE_ACCESS_16_NO_READBACK)
     {
       uint16_t data;
       if (protocol_version == 1)
@@ -152,7 +153,8 @@ void udp_server_callback(void *arg, struct udp_pcb *upcb,
         goto send_reply;
       }
     }
-  else if (sHdr->access_type == FPGA_WRITE_ACCESS_32)
+  else if (sHdr->access_type == FPGA_WRITE_ACCESS_32 ||
+           sHdr->access_type == FPGA_WRITE_ACCESS_32_NO_READBACK)
     {
       if (protocol_version == 1) {
         sHdr->status = FPGA_STATUS_INVALID_CMD;
@@ -176,7 +178,7 @@ void udp_server_callback(void *arg, struct udp_pcb *upcb,
       }
     }
   else if (sHdr->access_type == FPGA_WRITE_ACCESS_32 ||
-        sHdr->access_type == FPGA_READ_ACCESS_32)
+           sHdr->access_type == FPGA_READ_ACCESS_32)
     {
       uint32_t data;
       if (protocol_version == 1) {
@@ -187,6 +189,11 @@ void udp_server_callback(void *arg, struct udp_pcb *upcb,
         sHdr->status = FPGA_STATUS_TIMEOUT;
       }
       sHdr->data_v2 = htonl(data);
+    }
+  else if (sHdr->access_type == FPGA_WRITE_ACCESS_16_NO_READBACK ||
+           sHdr->access_type == FPGA_WRITE_ACCESS_32_NO_READBACK)
+    {
+      // No readback.
     }
   else
     {
