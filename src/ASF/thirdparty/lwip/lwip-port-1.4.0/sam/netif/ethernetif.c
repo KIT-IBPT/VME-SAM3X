@@ -100,16 +100,32 @@ struct ethernetif {
 /** Handle of the task waiting to receive data from the Ethernet MAC. */
 static TaskHandle_t ethernetif_rx_task;
 
+/** Handle of the task waiting to transmit data via the Ethernet MAC. */
+static TaskHandle_t ethernetif_tx_task;
+
 /**
  * \brief Callback when Ethernet MAC has received data.
  */
-static void ethernetif_rx_cb( uint32_t ul_status )
+static void ethernetif_rx_cb(uint32_t ul_status)
 {
 	BaseType_t higherPriorityTaskWoken = pdFALSE;
-	xTaskNotifyFromISR( ethernetif_rx_task,
-	                    0,
-	                    eNoAction,
-	                    &higherPriorityTaskWoken );
+	xTaskNotifyFromISR(ethernetif_rx_task,
+	                   0,
+	                   eNoAction,
+	                   &higherPriorityTaskWoken );
+	portYIELD_FROM_ISR(higherPriorityTaskWoken);
+}
+
+/**
+ * \brief Callback when Ethernet MAC is read to transmit data.
+ */
+static void ethernetif_tx_cb(void)
+{
+	BaseType_t higherPriorityTaskWoken = pdFALSE;
+	xTaskNotifyFromISR(ethernetif_tx_task,
+	                   0,
+	                   eNoAction,
+	                   &higherPriorityTaskWoken);
 	portYIELD_FROM_ISR(higherPriorityTaskWoken);
 }
 #endif // FREERTOS_USED
@@ -303,6 +319,36 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 
 	/* Signal that packet should be sent(); */
 	uc_rc = emac_dev_write(&gs_emac_dev, pc_buf, p->tot_len, NULL);
+#ifdef FREERTOS_USED
+	if (uc_rc == EMAC_TX_BUSY) {
+		/* No packet could be transmitted.  Wait a for an interrupt to tell us
+		that transmission is possible again. It is sufficient if one transmit
+		descriptor is freed up because this means that the next call to
+		emac_dev_write will succeed. */
+		ethernetif_tx_task = xTaskGetCurrentTaskHandle();
+		uc_rc = emac_dev_set_tx_wakeup_callback(&gs_emac_dev,
+			                                    &ethernetif_tx_cb,
+												1);
+		if (uc_rc != EMAC_OK) {
+			/* The callback could not be setup, so we cannot wait. */
+			return ERR_BUF;
+		}
+		if (xTaskNotifyStateClear(ethernetif_tx_task) == pdTRUE) {
+			/* If there was a notification pending, it is possible that the
+			callback just got called and data can now be sent, so we have to
+			try again before blocking. */
+			uc_rc = emac_dev_write(&gs_emac_dev, pc_buf, p->tot_len, NULL);
+		}
+		while (uc_rc == EMAC_TX_BUSY) {
+			/* Wait up to 100 ticks for a notification from the callback. */
+			xTaskNotifyWait(0, 0, NULL, 100);
+			/* Try to write again. */
+			uc_rc = emac_dev_write(&gs_emac_dev, pc_buf, p->tot_len, NULL);
+		}
+		/* We are no longer waiting for data, so we unregister the callback. */
+		emac_dev_set_tx_wakeup_callback(&gs_emac_dev, NULL, 0);
+	}
+#endif // FREERTOS_USED
 	if (uc_rc != EMAC_OK) {
 		return ERR_BUF;
 	}
