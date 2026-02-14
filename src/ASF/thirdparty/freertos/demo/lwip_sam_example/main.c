@@ -450,7 +450,7 @@ int main(void)
 #endif
 	
 	/* Start the ethernet tasks */
-	vStartEthernetTaskLauncher( configMAX_PRIORITIES );
+	vStartEthernetTaskLauncher(configMAX_PRIORITIES - 1);
 	
 	printf("Start Scheduler.\n");
 	/* Start FreeRTOS */
