@@ -96,6 +96,24 @@ struct ethernetif {
 	/* Add whatever per-interface state that is needed here. */
 };
 
+#ifdef FREERTOS_USED
+/** Handle of the task waiting to receive data from the Ethernet MAC. */
+static TaskHandle_t ethernetif_rx_task;
+
+/**
+ * \brief Callback when Ethernet MAC has received data.
+ */
+static void ethernetif_rx_cb( uint32_t ul_status )
+{
+	BaseType_t higherPriorityTaskWoken = pdFALSE;
+	xTaskNotifyFromISR( ethernetif_rx_task,
+	                    0,
+	                    eNoAction,
+	                    &higherPriorityTaskWoken );
+	portYIELD_FROM_ISR(higherPriorityTaskWoken);
+}
+#endif // FREERTOS_USED
+
 /**
  * \brief EMAC interrupt handler.
  */
@@ -195,6 +213,17 @@ static void low_level_init(struct netif *netif)
 
 	/* Init EMAC driver structure */
 	emac_dev_init(EMAC, &gs_emac_dev, &emac_option);
+
+#ifdef FREERTOS_USED
+	/* The interrupt priority  must not be higher (numerically less than)
+	configMAX_SYSCALL_INTERRUPT_PRIORITY. The lowest priority is
+	configKERNEL_INTERRUPT_PRIORITY. Both constants are already left-shifted,
+	but NVIC_SetPriority also applies left-shifting, so we have to unshift
+	them. Without left-shifting, the max. interrupt priority for syscalls is 5
+	and the kernel priority is 15. Again, remember that for the ARM Cortex M3,
+	higher values mean a lower priority (the highest priority is zero). */
+	NVIC_SetPriority(EMAC_IRQn, configMAX_SYSCALL_INTERRUPT_PRIORITY >> 4);
+#endif // FREERTOS_USED
 
 	/* Enable Interrupt */
 	NVIC_EnableIRQ(EMAC_IRQn);
@@ -309,6 +338,33 @@ static struct pbuf *low_level_input(struct netif *netif)
 	/* Obtain the size of the packet and put it into the "len"
 	 * variable. */
 	uc_rc = emac_dev_read(&gs_emac_dev, pc_buf, sizeof(pc_buf), &ul_frmlen);
+#ifdef FREERTOS_USED
+	if (uc_rc == EMAC_RX_NULL) {
+		/* No packet could be read.  Wait a for an interrupt to tell us there
+		is more data available. */
+		emac_dev_set_rx_callback(&gs_emac_dev, &ethernetif_rx_cb);
+		if (xTaskNotifyStateClear(ethernetif_rx_task) == pdTRUE) {
+			/* If there was a notification pending, it is possible that the
+			callback just got called and data was received since the last call
+			to emac_dev_read(), so we have to check again. */
+			uc_rc = emac_dev_read(&gs_emac_dev,
+				                  pc_buf,
+								  sizeof(pc_buf),
+								  &ul_frmlen);
+		}
+		while (uc_rc == EMAC_RX_NULL) {
+			/* Wait up to 100 ticks for a notification from the callback. */
+			xTaskNotifyWait(0, 0, NULL, 100);
+			/* Try to read again. */
+			uc_rc = emac_dev_read(&gs_emac_dev,
+								pc_buf,
+								sizeof(pc_buf),
+								&ul_frmlen);
+		}
+		/* We are no longer waiting for data, so we unregister the callback. */
+		emac_dev_set_rx_callback(&gs_emac_dev, NULL);
+	}
+#endif // FREERTOS_USED
 	if (uc_rc != EMAC_OK) {
 		return NULL;
 	}
@@ -369,22 +425,27 @@ void ethernetif_input(void * pvParameters)
 	struct pbuf       *p;
 
 #ifdef FREERTOS_USED
+	/* We have to store a handle to the task in which the receive loop is
+	running, so that the receive callback can notify this task. */
+	ethernetif_rx_task = xTaskGetCurrentTaskHandle();
 	for( ;; ) {
 		do {
-#endif
+#endif // FREERTOS_USED
 			/* move received packet into a new pbuf */
 			p = low_level_input( netif );
 			if( p == NULL ) {
 #ifdef FREERTOS_USED
-				/* No packet could be read.  Wait a for an interrupt to tell us
-				there is more data available. */
+				/* The case where no data was ready is already handled in
+				low_level_input, so if we get a result of NULL, something else
+				must be wrong. In this case we let the task sleep for 100 ticks
+				in order to avoid a busy loop. */
 				vTaskDelay(100);
 			}
 		}while( p == NULL );
-#else
+#else // FREERTOS_USED
 				return;
 			}
-#endif
+#endif // FREERTOS_USED
 
 		if( ERR_OK != netif->input( p, netif ) ) {
 			pbuf_free(p);
