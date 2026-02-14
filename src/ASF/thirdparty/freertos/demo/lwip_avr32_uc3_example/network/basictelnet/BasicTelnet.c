@@ -198,9 +198,15 @@ static void prvtelnet_Connection( struct netconn *pxNetCon )
 	/* We expect to immediately get data. */
 	pxRxBuffer = netconn_recv( pxNetCon );
 #else
-    while(netconn_recv( pxNetCon, &pxRxBuffer) != ERR_OK)
+    err_t uc_rc = netconn_recv( pxNetCon, &pxRxBuffer );
+    while( uc_rc != ERR_OK && uc_rc != ERR_CLSD && uc_rc != ERR_MEM )
     {
 		vTaskDelay( telnetSHORT_DELAY );
+		uc_rc = netconn_recv( pxNetCon, &pxRxBuffer );
+	}
+	if ( uc_rc == ERR_CLSD || uc_rc == ERR_MEM )
+	{
+		break;
 	}
 #endif
 	if( pxRxBuffer != NULL )
