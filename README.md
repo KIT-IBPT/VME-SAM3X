@@ -81,3 +81,95 @@ make debug
 This assumes that OpenOCD is running on the same host as GDB and listening for
 a connection from GDB on port 3333. If this does not apply, you have to modify
 `.gdbinit`.
+
+
+Network Protocol
+----------------
+
+The firmware for the SAM3X implements a UDP/IP server that listens on UDP
+port 2000. There are two versions of the protocol: The older version
+(version 1) is identical to the one that is supported by older devices from the
+VME-EVG-230 and VME-EVR-230 series that use an IP2022 instead of a SAM3X. The
+newer version (version 2) is exclusively supported by recent versions of the
+firmware for the SAM3X and adds support for accessing 32-bit registers in a
+single round-trip.
+
+Packets for protocol version 1 have the following structure:
+
+|Field type|Field length (in bytes)|Description|
+|----------|-----------------------|-----------|
+|uint8     |                      1|access type|
+|int8      |                      1|status     |
+|uint16    |                      2|data       |
+|uint32    |                      4|address    |
+|uint32    |                      4|reference  |
+
+Packets for protocol version 2 have the following structure:
+
+|Field type|Field length (in bytes)|Description|
+|----------|-----------------------|-----------|
+|uint8     |                      1|access type|
+|int8      |                      1|status     |
+|uint16    |                      2|reserved   |
+|uint32    |                      4|address    |
+|uint32    |                      4|reference  |
+|uint32    |                      4|data       |
+
+All fields use network byte-order (big endian).
+
+The *access type* field specifies the action that is taken. Protocol version 1
+supports two access types:
+
+- `1`: read from 16-bit register
+- `2`: write to 16-bit register
+
+Protocol version 2 supports two additional access types:
+
+- `3`: write to 16-bit register and do not read back
+- `4`: read from 32-bit register
+- `5`: write to 32-bit register
+- `6`: write to 32-bit register and do not read back
+
+It is still possible to read from and write to 32-bit registers using version 1
+of the protocol, but this requires two round-trips: For read operations, the
+low word (starting at the register address plus two bytes) should be read
+first, and the high word (the two bytes starting at the register address)
+should be read second. For write operations, the high word should be written
+first, and the low word should be written second (after the first write
+operation has succeeded).
+
+The *status* field is only used in replies to requests and should be set to
+zero in requests. It can have the following values:
+
+- `0`: Operation succeeded.
+- `-1` (`0xFF`): Invalid address specified (this is never returned by the
+  current version of the firmware).
+- `-2` (`0xFE`): FPGA did not respond in time (timeout).
+- `-3` (`0xFD`): Invalid command (the *access type*  field contains a value
+  that is not supported for the respective version of the protocol).
+
+The *reserved* field in version 2 of the protocol is not used at the moment and
+should be set to zero in requests.
+
+The *address* field specifies the address of the requested register inside the
+FPGA. Depending on the address space that shall be accessed the following
+offsets need to be applied (please note that these values are only valid for
+the VME-EVM-300 and VME-EVR-300, other devices may use different offsets):
+
+Offset    |Address space
+----------|------------------------
+0x00000000|VME CR/CSR address space
+0x80000000|EVM or EVR address space
+
+The *reference* field in a request can contain an arbitrary number chosen by
+the client. Each response contains the *reference*  value from the respective
+request, so clients can use this field to associate responses with requests.
+
+The *data* field contains the value that is supposed to be written (for
+write requests) or the value that has been read (for responses). For read
+requests, the value in this field is ignored. For responses to write requests,
+this is not the value that has been written but rather the value that was read
+back from the register after a successful write operation, unless the “no
+readback” variant of the write operation was used. If the *status* field of a 
+response is non-zero, the value in the *data* field is invalid and should not
+be used.
