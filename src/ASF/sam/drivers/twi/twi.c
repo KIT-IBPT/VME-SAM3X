@@ -46,6 +46,11 @@
 
 #include "twi.h"
 
+#ifdef FREERTOS_USED
+#	include "FreeRTOS.h"
+#	include "task.h"
+#endif // FREERTOS_USED
+
 /// @cond 0
 /**INDENT-OFF**/
 #ifdef __cplusplus
@@ -85,6 +90,76 @@ extern "C" {
 
 #define TWI_WP_KEY_VALUE TWI_WPMR_WPKEY_PASSWD
 
+#ifdef FREERTOS_USED
+static TaskHandle_t twi0_task;
+static TaskHandle_t twi1_task;
+
+static void twi_interrupt_handler(Twi *p_twi)
+{
+	/* When we receive any interrupt, we disable the full interrupt mask. We
+	can do this without reading the status register, and reading the status
+	register may have unintended side effects (some flags are cleared on
+	read). */
+	twi_disable_interrupt(p_twi, 0x0000FF77);
+}
+
+static uint32_t twi_set_task_handle(Twi *p_twi, TaskHandle_t current_task)
+{
+	if (p_twi == TWI0) {
+		twi0_task = current_task;
+		return TWI_SUCCESS;
+	} else if (p_twi == TWI1) {
+		twi1_task = current_task;
+		return TWI_SUCCESS;
+	} else {
+		return TWI_INVALID_ARGUMENT;
+	}
+}
+
+static uint32_t twi_wait_for_interrupt(Twi *p_twi, uint32_t flags) {
+	TaskHandle_t current_task = xTaskGetCurrentTaskHandle();
+	uint32_t rc = TWI_SUCCESS;
+
+	rc = twi_set_task_handle(p_twi, current_task);
+	if (rc != TWI_SUCCESS) {
+		return rc;
+	}
+	/* We are only interested in task notifications that happen after we have
+	enabled the interrupt. */
+	xTaskNotifyStateClear(current_task);
+	twi_enable_interrupt(p_twi, flags);
+	/* Wait for the interrupt handler to be called. The time needed to transfer
+	a byte over TWI is short compared to the length of a tick, so waiting for a
+	single tick should be sufficient. However, experiments have shown that
+	timeouts are extremely frequent when speccifying a timeout of one. This
+	might be due to how the scheduling logic of FreeRTOS works. With a timeout
+	of 2, this problem does not appear. */
+	if (xTaskNotifyWait(0, 0, NULL, 2) == pdFALSE) {
+		/* Usually, interrupts are disabled by the interrupt handler, but in
+		case of a timeout, we have to disable them here. */
+		twi_disable_interrupt(p_twi, flags);
+		rc = TWI_ERROR_TIMEOUT;
+	}
+	return rc;
+}
+
+void TWI0_Handler(void)
+{
+	BaseType_t higherPriorityTaskWoken = pdFALSE;
+	twi_interrupt_handler(TWI0);
+	xTaskNotifyFromISR(twi0_task, 0, eNoAction, &higherPriorityTaskWoken);
+	portYIELD_FROM_ISR(higherPriorityTaskWoken);
+}
+
+void TWI1_Handler(void)
+{
+	BaseType_t higherPriorityTaskWoken = pdFALSE;
+	twi_interrupt_handler(TWI1);
+	xTaskNotifyFromISR(twi1_task, 0, eNoAction, &higherPriorityTaskWoken);
+	portYIELD_FROM_ISR(higherPriorityTaskWoken);
+}
+#endif // FREERTOS_USED
+
 /**
  * \brief Enable TWI master mode.
  *
@@ -123,11 +198,34 @@ uint32_t twi_master_init(Twi *p_twi, const twi_options_t *p_opt)
 {
 	uint32_t status = TWI_SUCCESS;
 
+#ifdef FREERTOS_USED
+	enum IRQn twi_irq;
+	if (p_twi == TWI0) {
+		twi_irq = TWI0_IRQn;
+	} else if (p_twi == TWI1) {
+		twi_irq = TWI1_IRQn;
+	} else {
+		return TWI_INVALID_ARGUMENT;
+	}
+#endif // FREERTOS_USED
+
 	/* Disable TWI interrupts */
 	p_twi->TWI_IDR = ~0UL;
 
 	/* Dummy read in status register */
 	p_twi->TWI_SR;
+
+#ifdef FREERTOS_USED
+	/* The interrupt priority  must not be higher (numerically less than)
+	configMAX_SYSCALL_INTERRUPT_PRIORITY. The lowest priority is
+	configKERNEL_INTERRUPT_PRIORITY. Both constants are already left-shifted,
+	but NVIC_SetPriority also applies left-shifting, so we have to unshift
+	them. Without left-shifting, the max. interrupt priority for syscalls is 5
+	and the kernel priority is 15. Again, remember that for the ARM Cortex M3,
+	higher values mean a lower priority (the highest priority is zero). */
+	NVIC_SetPriority(twi_irq, configMAX_SYSCALL_INTERRUPT_PRIORITY >> 4);
+	NVIC_EnableIRQ(twi_irq);
+#endif // FREERTOS_USED
 
 	/* Reset TWI peripheral */
 	twi_reset(p_twi);
@@ -258,7 +356,7 @@ uint32_t twi_master_read(Twi *p_twi, twi_packet_t *p_packet)
 	uint8_t *buffer = p_packet->buffer;
 	uint8_t stop_sent = 0;
 	uint32_t timeout = TWI_TIMEOUT;;
-	
+
 	/* Check argument */
 	if (cnt == 0) {
 		return TWI_INVALID_ARGUMENT;
@@ -300,6 +398,13 @@ uint32_t twi_master_read(Twi *p_twi, twi_packet_t *p_packet)
 		}
 
 		if (!(status & TWI_SR_RXRDY)) {
+#ifdef FREERTOS_USED
+			uint32_t rc = twi_wait_for_interrupt(
+					p_twi, TWI_SR_NACK | TWI_SR_RXRDY);
+			if (rc != TWI_SUCCESS) {
+				return rc;
+			}
+#endif // FREERTOS_USED
 			continue;
 		}
 		*buffer++ = p_twi->TWI_RHR;
@@ -310,6 +415,17 @@ uint32_t twi_master_read(Twi *p_twi, twi_packet_t *p_packet)
 
 	timeout = TWI_TIMEOUT;
 	while (!(p_twi->TWI_SR & TWI_SR_TXCOMP)) {
+#ifdef FREERTOS_USED
+		uint32_t rc = twi_wait_for_interrupt(p_twi, TWI_SR_TXCOMP);
+		if (rc == TWI_ERROR_TIMEOUT) {
+#ifdef DEBUG_TWI
+			printf("twi_master_read timed out while waiting for TXCOMP.\r\n");
+#endif // DEBUG_TWI
+			return TWI_ERROR_TIMEOUT_COMP;
+		} else if (rc != TWI_SUCCESS) {
+			return rc;
+		}
+#endif // FREERTOS_USED
 		if (!timeout--) {
 #ifdef DEBUG_TWI
 			printf("twi_master_read timed out while waiting for TXCOMP.\r\n");
@@ -317,8 +433,6 @@ uint32_t twi_master_read(Twi *p_twi, twi_packet_t *p_packet)
 			return TWI_ERROR_TIMEOUT_COMP;
 		}
 	}
-
-	p_twi->TWI_SR;
 
 	return TWI_SUCCESS;
 }
@@ -363,6 +477,13 @@ uint32_t twi_master_write(Twi *p_twi, twi_packet_t *p_packet)
 		}
 
 		if (!(status & TWI_SR_TXRDY)) {
+#ifdef FREERTOS_USED
+			uint32_t rc = twi_wait_for_interrupt(
+					p_twi, TWI_SR_NACK | TWI_SR_TXRDY);
+			if (rc != TWI_SUCCESS) {
+				return rc;
+			}
+#endif // FREERTOS_USED
 			continue;
 		}
 		p_twi->TWI_THR = *buffer++;
@@ -379,11 +500,29 @@ uint32_t twi_master_write(Twi *p_twi, twi_packet_t *p_packet)
 		if (status & TWI_SR_TXRDY) {
 			break;
 		}
+#ifdef FREERTOS_USED
+		uint32_t rc = twi_wait_for_interrupt(
+				p_twi, TWI_SR_NACK | TWI_SR_TXRDY);
+		if (rc != TWI_SUCCESS) {
+			return rc;
+		}
+#endif // FREERTOS_USED
 	}
 
 	p_twi->TWI_CR = TWI_CR_STOP;
 
 	while (!(p_twi->TWI_SR & TWI_SR_TXCOMP)) {
+#ifdef FREERTOS_USED
+		uint32_t rc = twi_wait_for_interrupt(p_twi, TWI_SR_TXCOMP);
+		if (rc == TWI_ERROR_TIMEOUT) {
+#ifdef DEBUG_TWI
+			printf("twi_master_write timed out while waiting for TXCOMP.\r\n");
+#endif // DEBUG_TWI
+			return TWI_ERROR_TIMEOUT_COMP;
+		} else if (rc != TWI_SUCCESS) {
+			return rc;
+		}
+#endif // FREERTOS_USED
 		if (!timeout--) {
 #ifdef DEBUG_TWI
 			printf("twi_master_write timed out while waiting for TXCOMP.\r\n");
