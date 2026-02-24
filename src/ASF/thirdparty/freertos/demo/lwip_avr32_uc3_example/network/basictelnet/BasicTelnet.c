@@ -301,6 +301,100 @@ static void prvtelnet_Connection( struct netconn *pxNetCon )
 				}
 			    break;
 			    }
+			  case 'g':
+			  case 'G':
+			    {
+			      int iteration, iterationWithMismatch = -2, pos = 1;
+			      uint32_t addr, data, expected, mode, status;
+
+			      pos = linebuf_set_u32(linebuf, pos, &mode);
+			      if (pos <= 0) {
+				strcat(cTelnetPage, "Invalid syntax. Use g <mode> <addr> <data>.\r\n");
+				break;
+			      }
+			      pos = linebuf_set_u32(linebuf, pos, &addr);
+			      if (pos <= 0) {
+				strcat(cTelnetPage, "Invalid syntax. Use g <mode> <addr> <data>.\r\n");
+				break;
+			      }
+			      pos = linebuf_set_u32(linebuf, pos, &expected);
+			      if (pos <= 0) {
+				strcat(cTelnetPage, "Invalid syntax. Use g <mode> <addr> <data>.\r\n");
+				break;
+			      }
+			      if (mode > 2) {
+				strcat(cTelnetPage, "Invalid mode. Must be 0, 1, or 2.\r\n");
+				break;
+			      }
+			      for (iteration = 0; iteration < 200000; ++iteration) {
+				status = fpga_read_long(addr, &data);
+				switch (mode) {
+				case 0:
+				  if (status) {
+				    char buffer[128];
+				    sprintf(buffer, "Read operation in iteration %d from address %08lx failed with status %lu.\r\n", iteration, addr, status);
+				    strcat(cTelnetPage, buffer);
+				    goto readError;
+				  }
+				  break;
+				case 1:
+				  if (data != expected) {
+				    char buffer[128];
+				    sprintf(buffer, "Read %08lx in iteration %d from address %08lx where %08lx was expected.\r\n", data, iteration, addr, expected);
+				    strcat(cTelnetPage, buffer);
+				    goto readError;
+				  }
+				  break;
+				case 2:
+				  if (status) {
+				    char buffer[128];
+				    sprintf(buffer, "Read operation in iteration %d from address %08lx failed with status %lu.\r\n", iteration, addr, status);
+				    strcat(cTelnetPage, buffer);
+				    if (iterationWithMismatch == (iteration - 1)) {
+				      goto readError;
+				    }
+				  }
+				  if (data != expected) {
+				    char buffer[128];
+				    sprintf(buffer, "Read %08lx in iteration %d from address %08lx where %08lx was expected.\r\n", data, iteration, addr, expected);
+				    strcat(cTelnetPage, buffer);
+				    netconn_write(pxNetCon, cTelnetPage, (u16_t) strlen(cTelnetPage), NETCONN_COPY);
+				    cTelnetPage[0] = 0;
+				    iterationWithMismatch = iteration;
+				  }
+				  break;
+				}
+			      }
+			      strcat(cTelnetPage, "No error detected in 200000 iterations.\r\n");
+			      break;
+			      readError:
+			      // Sleep for about 1 ms.
+			      for (int i = 0; i < 20648; ++i);
+			      status = fpga_write_long(addr, expected);
+			      if (status) {
+				strcat(cTelnetPage, "Subsequent write operation failed.\r\n");
+			      } else {
+				strcat(cTelnetPage, "Subsequent write operation succeeded.\r\n");
+			      }
+			      break;
+			    }
+			  case 's':
+			  case 'S':
+			    {
+			      int pos = 1;
+			      uint32_t iterations;
+			      pos = linebuf_set_u32(linebuf, pos, &iterations);
+			      if (pos <= 0) {
+				break;
+			      }
+			      sprintf(cStrLen, "Waiting for %lu iterations...\r\n", iterations);
+			      strcat(cTelnetPage, cStrLen);
+			      netconn_write(pxNetCon, cTelnetPage, (u16_t) strlen(cTelnetPage), NETCONN_COPY);
+			      cTelnetPage[0] = 0;
+			      for (uint32_t i = 0; i < iterations; ++i);
+			      strcat(cTelnetPage, "...done.\r\n");
+			      break;
+			    }
 			  default:
 			    break;
 			  }
