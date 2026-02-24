@@ -23,6 +23,8 @@
 
 #include "evm300.h"
 
+#define TWI_MAX_ATTEMPTS 1
+
 void fpga_twi_init(void)
 {
   twi_options_t opt =
@@ -155,7 +157,7 @@ uint32_t fpga_read_byte(uint32_t address, uint8_t *data)
   uint32_t data_full;
   uint32_t status;
 
-  for (int attempt = 0; attempt < 3; ++attempt) {
+  for (int attempt = 0; attempt < TWI_MAX_ATTEMPTS; ++attempt) {
     if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
       continue;
     }
@@ -177,7 +179,7 @@ uint32_t fpga_read_short(uint32_t address, uint16_t *data)
   uint32_t data_full;
   uint32_t status;
 
-  for (int attempt = 0; attempt < 3; ++attempt) {
+  for (int attempt = 0; attempt < TWI_MAX_ATTEMPTS; ++attempt) {
     if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
       continue;
     }
@@ -198,7 +200,7 @@ uint32_t fpga_read_long(uint32_t address, uint32_t *data)
 {
   uint32_t status;
 
-  for (int attempt = 0; attempt < 3; ++attempt) {
+  for (int attempt = 0; attempt < TWI_MAX_ATTEMPTS; ++attempt) {
     if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
       continue;
     }
@@ -227,7 +229,7 @@ uint32_t fpga_write_byte(uint32_t address, uint8_t data)
   packet_write.buffer = (void *) buffer;
   packet_write.length = 2;
 
-  for (int attempt = 0; attempt < 3; ++attempt) {
+  for (int attempt = 0; attempt < TWI_MAX_ATTEMPTS; ++attempt) {
     if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
       continue;
     }
@@ -255,7 +257,7 @@ uint32_t fpga_write_short(uint32_t address, uint16_t data)
   packet_write.buffer = (void *) buffer;
   packet_write.length = 3;
 
-  for (int attempt = 0; attempt < 3; ++attempt) {
+  for (int attempt = 0; attempt < TWI_MAX_ATTEMPTS; ++attempt) {
     if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
       continue;
     }
@@ -285,7 +287,7 @@ uint32_t fpga_write_long(uint32_t address, uint32_t data)
   packet_write.buffer = (void *) buffer;
   packet_write.length = 5;
 
-  for (int attempt = 0; attempt < 3; ++attempt) {
+  for (int attempt = 0; attempt < TWI_MAX_ATTEMPTS; ++attempt) {
     if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
       continue;
     }
