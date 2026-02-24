@@ -133,14 +133,7 @@ uint32_t fpga_read_data(uint32_t *data)
   status = twi_master_read(TWI0, &packet_read);
   if (status != TWI_SUCCESS) {
     fpga_twi_reset();
-    // If the status is TWI_ERROR_TIMEOUT_COMP, the actual read operation was
-    // successful, the only problem is that the TWI logic did not return into
-    // the expected state. This means that we can use the result from the read
-    // operation. In all other cases, the read was not successful, so the data
-    // is not valid
-    if (status != TWI_ERROR_TIMEOUT_COMP) {
-      return status;
-    }
+    return status;
   }
 
   *data = (((uint32_t) buffer[1]) << 24) |
