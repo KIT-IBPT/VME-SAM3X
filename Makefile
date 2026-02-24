@@ -103,7 +103,7 @@ COMPILER_VERSION = $(shell arm-none-eabi-gcc -dumpversion)
 COMMON_FLAGS := \
 	-x c -mthumb -D__SAM3X8H__ -DDEBUG -DUDP_USED=1 -Dprintf=iprintf \
 	-D__FREERTOS__ -DHTTP_USED=0 -DTELNET_USED=1 -DARM_MATH_CM3=true \
-	-DBOARD=SAM3X_EVM300 -Dscanf=iscanf -DFREERTOS_USED
+	-DBOARD=SAM3X_EVM300 -Dscanf=iscanf -DFREERTOS_USED -DDEBUG_TWI
 
 # Include paths
 INCLUDE_PATHS := \
