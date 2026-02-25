@@ -368,8 +368,6 @@ static void prvtelnet_Connection( struct netconn *pxNetCon )
 			      strcat(cTelnetPage, "No error detected in 200000 iterations.\r\n");
 			      break;
 			      readError:
-			      // Sleep for about 1 ms.
-			      for (int i = 0; i < 20648; ++i);
 			      status = fpga_write_long(addr, expected);
 			      if (status) {
 				strcat(cTelnetPage, "Subsequent write operation failed.\r\n");
