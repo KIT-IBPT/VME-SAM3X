@@ -123,6 +123,7 @@
 #include "evm300.h"
 #include "m25p128_spi.h"
 #include "ext_flash.h"
+#include "xvc_server.h"
 
 #define TASK_LED_STACK_SIZE                (128 / sizeof(portSTACK_TYPE))
 #define TASK_LED_STACK_PRIORITY            (tskIDLE_PRIORITY)
@@ -219,11 +220,7 @@ static void task_led(void *pvParameters)
 {
 	for (;;) {
 		LED_Toggle(LED0);
-                if (gpio_pin_is_low(NXILJTAG))
-		  ioport_set_pin_level(JTAGSEL, 1);
-		else
-		  if (gpio_pin_is_high(USBPOWER))
-		    ioport_set_pin_level(JTAGSEL, 0);
+		xvc_server_update_jtagsel();
 		
                 if (gpio_pin_is_high(HSOPEN))
 		  {
@@ -341,6 +338,9 @@ int main(void)
 
 	gpio_configure_group(PINS_UART_PIO, PINS_UART, PINS_UART_FLAGS);
 
+	/* Initialize the XVC server (this does not start the server). */
+	xvc_server_init();
+
 	/* Initialize the console uart */
 	configure_console();
 
@@ -369,10 +369,6 @@ int main(void)
 	ioport_set_pin_dir(PWRDWN, IOPORT_DIR_OUTPUT);
 	ioport_set_pin_level(PWRDWN, 0);
 	ioport_set_pin_dir(NVMERESETIN, IOPORT_DIR_INPUT);
-	ioport_set_pin_dir(USBPOWER, IOPORT_DIR_INPUT);
-	ioport_set_pin_dir(JTAGSEL, IOPORT_DIR_OUTPUT);
-	ioport_set_pin_level(JTAGSEL, 0);
-	ioport_set_pin_dir(NXILJTAG, IOPORT_DIR_INPUT);
 	ioport_set_pin_dir(NPROG, IOPORT_DIR_INPUT);
 	ioport_set_pin_dir(NINIT, IOPORT_DIR_INPUT);
 	ioport_set_pin_dir(HSOPEN, IOPORT_DIR_INPUT);
@@ -388,9 +384,6 @@ int main(void)
         gpio_configure_pin(VMERESETOUT, PIO_OUTPUT_0);
         gpio_configure_pin(NVMERESETIN, PIO_INPUT);
         gpio_configure_pin(PWRDWN, PIO_OUTPUT_0);
-        gpio_configure_pin(USBPOWER, PIO_INPUT);
-        gpio_configure_pin(JTAGSEL, PIO_INPUT);
-        gpio_configure_pin(NXILJTAG, PIO_INPUT);
         gpio_configure_pin(NPROG, PIO_INPUT);
         gpio_configure_pin(NINIT, PIO_INPUT);
         gpio_configure_pin(HSOPEN, PIO_INPUT);

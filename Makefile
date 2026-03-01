@@ -79,7 +79,8 @@ C_SRCS := \
 	src/ASF/thirdparty/lwip/lwip-1.4.0/src/core/udp.c \
 	src/ASF/thirdparty/lwip/lwip-1.4.0/src/netif/etharp.c \
 	src/ASF/thirdparty/lwip/lwip-port-1.4.0/sam/netif/ethernetif.c \
-	src/ASF/thirdparty/lwip/lwip-port-1.4.0/sam/sys_arch.c
+	src/ASF/thirdparty/lwip/lwip-port-1.4.0/sam/sys_arch.c \
+	src/xvc/xvc_server.c
 
 LOADER=src/ASF/sam/utils/linker_scripts/sam3x/sam3x8/gcc/flash.ld
 
@@ -102,8 +103,8 @@ COMPILER_VERSION = $(shell arm-none-eabi-gcc -dumpversion)
 # Common compiler flags
 COMMON_FLAGS := \
 	-x c -mthumb -D__SAM3X8H__ -DDEBUG -DUDP_USED=1 -Dprintf=iprintf \
-	-D__FREERTOS__ -DHTTP_USED=0 -DTELNET_USED=1 -DARM_MATH_CM3=true \
-	-DBOARD=SAM3X_EVM300 -Dscanf=iscanf -DFREERTOS_USED
+	-D__FREERTOS__ -DHTTP_USED=0 -DTELNET_USED=1 -DXVC_USED=1 \
+	-DARM_MATH_CM3=true -DBOARD=SAM3X_EVM300 -Dscanf=iscanf -DFREERTOS_USED
 
 # Include paths
 INCLUDE_PATHS := \
@@ -150,6 +151,7 @@ INCLUDE_PATHS := \
 	-I"src/ASF/common/services/serial/sam_uart" \
 	-I"src/ASF/common/services/serial" \
 	-I"src/ASF/sam/drivers/usart" \
+	-I"src/xvc" \
 	-I"src" \
 	-I"src/config"
 

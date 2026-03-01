@@ -112,7 +112,7 @@
 /* MEMP_NUM_TCP_PCB: the number of simultaneously active TCP connections. */
 #define MEMP_NUM_TCP_PCB        2
 /* MEMP_NUM_TCP_PCB_LISTEN: the number of listening TCP connections. */
-#define MEMP_NUM_TCP_PCB_LISTEN 1
+#define MEMP_NUM_TCP_PCB_LISTEN 2
 /* MEMP_NUM_TCP_SEG: the number of simultaneously queued TCP segments. */
 #define MEMP_NUM_TCP_SEG        9
 /* MEMP_NUM_SYS_TIMEOUT: the number of simulateously active timeouts. */

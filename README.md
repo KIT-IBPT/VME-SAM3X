@@ -173,3 +173,102 @@ back from the register after a successful write operation, unless the “no
 readback” variant of the write operation was used. If the *status* field of a 
 response is non-zero, the value in the *data* field is invalid and should not
 be used.
+
+
+JTAG XVC Server
+---------------
+
+The firmware implements an embedded Xilinx Virtual Cable (XVC) server that can
+be used to access the FPGA’s JTAG interface in order to install firmware
+updates for the FPGA. This server is available on TCP port 2542.
+
+While the SAM3X microcontroller appears on the same JTAG chain, **the XVC
+server cannot be used to update the firmware on the SAM3X**. The reason is that
+the XVC server runs on the SAM3X, so the JTAG connection would be lost the
+moment the SAM3X is stopped in order to install the new firmware.
+
+On power-up, the XVC server is disabled. In order to enable it, connect to the
+device via Telnet (TCP port 23) and issue the `j` command in the console in
+order to enable the XVC server. When it is no longer needed, the XVC server can
+also be disabled by issuing this command.
+
+The XVC server cannot be enabled when a JTAG adapter is connected to the JTAG
+header on the PCB or when the device is connected to a host system via the USB
+port on the front panel. The reason is that there is only a single JTAG
+interface, and this interface cannot be driven by the microcontroller when it
+is already driven via an external JTAG adapter or via the internal JTAG USB
+adapter.
+
+### Using openFPGALoader to Install Firmware Updates
+
+[openFPGALoader](https://github.com/trabucayre/openFPGALoader) can be used to
+install firmware updates on the FPGA’s SPI flash EEPROM via XVC. In order for
+this to work, you need at least version 1.1.0 of openFPGALoader, and you most
+likely want to use a version where a
+[patch significantly improving the XVC performance](
+https://github.com/trabucayre/openFPGALoader/pull/632) is also included.
+Without this patch, the process is extremely slow (taking many hours).
+
+You can first check that JTAG communication is working by detecting the chain:
+
+```sh
+openFPGALoader --cable xvc-client --ip 192.0.2.1 --port 2542 --detect
+```
+
+The IP address 192.0.2.1 has to be replaced with the actual IP address of the
+device where the update is supposed to be installed. At the time of writing, an
+IP adress must be specified as openFPGALoader does not support the use of DNS
+names.
+
+For the VME-EVR-300, running this command should result in an output like this:
+
+```
+empty
+detected xvcServer version v1.0 packet size 512
+freq 6000000 166.666667 166 0
+b2 2 0 0
+index 0:
+	idcode   0x4ba00477
+	type     ARM cortex A9
+	irlength 4
+index 1:
+	idcode 0x3647093
+	manufacturer xilinx
+	family kintex7
+	model  xc7k70t
+	irlength 6
+```
+
+Next, you can install the firmware image:
+
+```sh
+openFPGALoader --cable xvc-client --ip 192.0.2.1 --port 2542 \
+  --index-chain 1 --fpga-part xc7k70tfbg676 --write-flash --bulk-erase \
+  VME-EVR-300-12160207.bit
+```
+
+The name of the `.bit` file has to be adjusted to match the name of the
+firmware file that shall actually be installed, of course.
+
+At the time of writing, SPI over JTAG support for the XC7K325TFBG900, which is
+used on the VME-EVM-300 is not available in openFPGALoader yet. However, there
+is a [pull request](https://github.com/trabucayre/openFPGALoader/pull/635)
+adding support. When support is available, the following command should work:
+
+```sh
+openFPGALoader --cable xvc-client --ip 192.0.2.1 --port 2542 \
+  --index-chain 1 --fpga-part xc7k325tfbg900 --write-flash --bulk-erase \
+  VME-EVM-300-22110207.bit
+```
+
+### Connecting with Xilinx ISE iMPACT
+
+When using Xilinx ISE iMPACT to connect to the XVC server, you have to select
+“Open Cable Plug-in” in the cable setup dialog and enter the following string:
+
+```
+xilinx_xvc host=192.1.2.0 disableversioncheck=true maxpacketsize=512
+```
+
+Like for openFPGALOader, 192.1.2.0 has to be replaced with the actual IP
+address of the device.
