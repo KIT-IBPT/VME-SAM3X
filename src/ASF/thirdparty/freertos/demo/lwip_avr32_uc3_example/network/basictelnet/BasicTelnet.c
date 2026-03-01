@@ -88,6 +88,7 @@
 #include "ethernet.h"
 
 #include "evm300.h"
+#include "xvc_server.h"
 
 #define LINEBUF_LENGTH 80
 
@@ -259,6 +260,10 @@ static void prvtelnet_Connection( struct netconn *pxNetCon )
 			    strcpy( cTelnetPage, "Help\r\n====\r\n");
 			    strcat( cTelnetPage, "d <address>                " );
 			    strcat( cTelnetPage, "Dump registers\r\n");
+			    strcat( cTelnetPage, "j                          " );
+#if (XVC_USED == 1)
+			    strcat( cTelnetPage, "Toggle XVC server enable\r\n");
+#endif // (XVC_USED == 1)
 			    strcat( cTelnetPage, "m <address>                " );
 			    strcat( cTelnetPage, "Read register (short)\r\n");
 			    strcat( cTelnetPage, "m <address> <short data>   " );
@@ -268,6 +273,37 @@ static void prvtelnet_Connection( struct netconn *pxNetCon )
 			    strcat( cTelnetPage, "Base address for EVR/EVM function is 80000000.\r\n");
 			    break;
 			    }
+#if (XVC_USED == 1)
+			  case 'j':
+			  case 'J':
+			    {
+			      if (xvc_server_is_enabled())
+			        {
+				  if (xvc_server_disable() == XVC_STATUS_OK)
+				    {
+				      strcat( cTelnetPage, "XVC server has been disabled.\r\n" );
+				    }
+				  else
+				    {
+				      strcat( cTelnetPage, "XVC server could not be disabled.\r\n" );
+				      strcat( cTelnetPage, "Please ensure that there is no active XVC connection.\r\n" );
+				    }
+			        }
+			      else
+			        {
+				  if (xvc_server_enable() == XVC_STATUS_OK)
+				    {
+				      strcat( cTelnetPage, "XVC server has been enabled.\r\n" );
+				    }
+				  else
+				    {
+				      strcat( cTelnetPage, "XVC server could not be enabled.\r\n" );
+				      strcat( cTelnetPage, "Typically, this happens when a JTAG cable or USB cable is connected.\r\n" );
+				    }
+				}
+			      break;
+			    }
+#endif // (XVC_USED == 1)
 			  case 'm':
 			  case 'M':
 			    {

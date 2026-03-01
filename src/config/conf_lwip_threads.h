@@ -64,6 +64,9 @@
 /** define stack size for SMTP Client task */
 #define lwipBASIC_SMTP_CLIENT_STACK_SIZE  256
 
+/** define stack size for XVC server task */
+#define lwipXVC_SERVER_STACK_SIZE 256
+
 /** define stack size for lwIP task */
 #define lwipINTERFACE_STACK_SIZE         2048
 
@@ -81,6 +84,9 @@
 
 /** define SMTP Client priority */
 #define lwipBASIC_SMTP_CLIENT_PRIORITY    (tskIDLE_PRIORITY + 5)
+
+/** define XVC server priority */
+#define lwipXVC_SERVER_PRIORITY    (tskIDLE_PRIORITY + 5)
 
 /** define lwIP task priority */
 #define lwipINTERFACE_TASK_PRIORITY       (configMAX_PRIORITIES - 1)
