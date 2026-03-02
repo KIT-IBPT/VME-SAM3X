@@ -155,19 +155,17 @@ uint32_t fpga_read_byte(uint32_t address, uint8_t *data)
   uint32_t data_full;
   uint32_t status;
 
-  for (int attempt = 0; attempt < 3; ++attempt) {
-    if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
-      continue;
-    }
-    if ((status = fpga_write_command(0x04)) != TWI_SUCCESS) {
-      continue;
-    }
-    if ((status = fpga_read_data(&data_full)) != TWI_SUCCESS) {
-      continue;
-    }
-    *data = (data_full >> 24) & 0xff;
-    break;
+  if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
+    return status;
   }
+  if ((status = fpga_write_command(0x04)) != TWI_SUCCESS) {
+    return status;
+  }
+  if ((status = fpga_read_data(&data_full)) != TWI_SUCCESS) {
+    return status;
+  }
+
+  *data = (data_full >> 24) & 0xff;
 
   return status;
 }
@@ -177,19 +175,17 @@ uint32_t fpga_read_short(uint32_t address, uint16_t *data)
   uint32_t data_full;
   uint32_t status;
 
-  for (int attempt = 0; attempt < 3; ++attempt) {
-    if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
-      continue;
-    }
-    if ((status = fpga_write_command(0x14)) != TWI_SUCCESS) {
-      continue;
-    }
-    if ((status = fpga_read_data(&data_full)) != TWI_SUCCESS) {
-      continue;
-    }
-    *data = (data_full >> 16) & 0xffff;
-    break;
+  if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
+    return status;
   }
+  if ((status = fpga_write_command(0x14)) != TWI_SUCCESS) {
+    return status;
+  }
+  if ((status = fpga_read_data(&data_full)) != TWI_SUCCESS) {
+    return status;
+  }
+
+  *data = (data_full >> 16) & 0xffff;
 
   return status;
 }
@@ -198,17 +194,14 @@ uint32_t fpga_read_long(uint32_t address, uint32_t *data)
 {
   uint32_t status;
 
-  for (int attempt = 0; attempt < 3; ++attempt) {
-    if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
-      continue;
-    }
-    if ((status = fpga_write_command(0x34)) != TWI_SUCCESS) {
-      continue;
-    }
-    if ((status = fpga_read_data(data)) != TWI_SUCCESS) {
-      continue;
-    }
-    break;
+  if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
+    return status;
+  }
+  if ((status = fpga_write_command(0x34)) != TWI_SUCCESS) {
+    return status;
+  }
+  if ((status = fpga_read_data(data)) != TWI_SUCCESS) {
+    return status;
   }
 
   return status;
@@ -227,15 +220,12 @@ uint32_t fpga_write_byte(uint32_t address, uint8_t data)
   packet_write.buffer = (void *) buffer;
   packet_write.length = 2;
 
-  for (int attempt = 0; attempt < 3; ++attempt) {
-    if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
-      continue;
-    }
-    if ((status = twi_master_write(TWI0, &packet_write)) != TWI_SUCCESS) {
-      fpga_twi_reset();
-      continue;
-    }
-    break;
+  if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
+    return status;
+  }
+  if ((status = twi_master_write(TWI0, &packet_write)) != TWI_SUCCESS) {
+    fpga_twi_reset();
+    return status;
   }
 
   return status;
@@ -255,15 +245,12 @@ uint32_t fpga_write_short(uint32_t address, uint16_t data)
   packet_write.buffer = (void *) buffer;
   packet_write.length = 3;
 
-  for (int attempt = 0; attempt < 3; ++attempt) {
-    if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
-      continue;
-    }
-    if ((status = twi_master_write(TWI0, &packet_write)) != TWI_SUCCESS) {
-      fpga_twi_reset();
-      continue;
-    }
-    break;
+  if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
+    return status;
+  }
+  if ((status = twi_master_write(TWI0, &packet_write)) != TWI_SUCCESS) {
+    fpga_twi_reset();
+    return status;
   }
 
   return status;
@@ -285,15 +272,12 @@ uint32_t fpga_write_long(uint32_t address, uint32_t data)
   packet_write.buffer = (void *) buffer;
   packet_write.length = 5;
 
-  for (int attempt = 0; attempt < 3; ++attempt) {
-    if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
-      continue;
-    }
-    if ((status = twi_master_write(TWI0, &packet_write)) != TWI_SUCCESS) {
-      fpga_twi_reset();
-      continue;
-    }
-    break;
+  if ((status = fpga_write_opb_address(address)) != TWI_SUCCESS) {
+    return status;
+  }
+  if ((status = twi_master_write(TWI0, &packet_write)) != TWI_SUCCESS) {
+    fpga_twi_reset();
+    return status;
   }
 
   return status;
