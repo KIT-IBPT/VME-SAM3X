@@ -46,6 +46,11 @@
 
 #include "twi.h"
 
+#ifdef FREERTOS_USED
+#	include "FreeRTOS.h"
+#	include "task.h"
+#endif // FREERTOS_USED
+
 /// @cond 0
 /**INDENT-OFF**/
 #ifdef __cplusplus
@@ -85,6 +90,75 @@ extern "C" {
 
 #define TWI_WP_KEY_VALUE TWI_WPMR_WPKEY_PASSWD
 
+#ifdef FREERTOS_USED
+static TaskHandle_t twi0_task;
+static TaskHandle_t twi1_task;
+
+static void twi_interrupt_handler(Twi *p_twi, TaskHandle_t task)
+{
+	BaseType_t higher_priority_task_woken = pdFALSE;
+	/* When we receive any interrupt, we disable the full interrupt mask. We
+	can do this without reading the status register, and reading the status
+	register may have unintended side effects (some flags are cleared on
+	read). */
+	twi_disable_interrupt(p_twi, 0x0000FF77);
+	xTaskNotifyFromISR(task, 0, eNoAction, &higher_priority_task_woken);
+	portYIELD_FROM_ISR(higher_priority_task_woken);
+}
+
+static uint32_t twi_set_task_handle(Twi *p_twi, TaskHandle_t current_task)
+{
+	if (p_twi == TWI0) {
+		twi0_task = current_task;
+		return TWI_SUCCESS;
+	} else if (p_twi == TWI1) {
+		twi1_task = current_task;
+		return TWI_SUCCESS;
+	} else {
+		return TWI_INVALID_ARGUMENT;
+	}
+}
+
+static uint32_t twi_wait_for_interrupt(
+		Twi *p_twi, uint32_t flags, TickType_t ticks_to_wait)
+{
+	TaskHandle_t current_task = xTaskGetCurrentTaskHandle();
+	uint32_t rc = TWI_SUCCESS;
+
+	rc = twi_set_task_handle(p_twi, current_task);
+	if (rc != TWI_SUCCESS) {
+		return rc;
+	}
+	/* We are only interested in task notifications that happen after we have
+	enabled the interrupt. */
+	xTaskNotifyStateClear(current_task);
+	twi_enable_interrupt(p_twi, flags);
+	/* Wait for the interrupt handler to be called. The time needed to transfer
+	a byte over TWI is short compared to the length of a tick, so waiting for a
+	single tick should be sufficient. However, experiments have shown that
+	timeouts are extremely frequent when speccifying a timeout of one. This
+	might be due to how the scheduling logic of FreeRTOS works. With a timeout
+	of 2, this problem does not appear. */
+	if (xTaskNotifyWait(0, 0, NULL, ticks_to_wait) == pdFALSE) {
+		/* Usually, interrupts are disabled by the interrupt handler, but in
+		case of a timeout, we have to disable them here. */
+		twi_disable_interrupt(p_twi, flags);
+		rc = TWI_ERROR_TIMEOUT;
+	}
+	return rc;
+}
+
+void TWI0_Handler(void)
+{
+	twi_interrupt_handler(TWI0, twi0_task);
+}
+
+void TWI1_Handler(void)
+{
+	twi_interrupt_handler(TWI1, twi1_task);
+}
+#endif // FREERTOS_USED
+
 /**
  * \brief Enable TWI master mode.
  *
@@ -123,11 +197,34 @@ uint32_t twi_master_init(Twi *p_twi, const twi_options_t *p_opt)
 {
 	uint32_t status = TWI_SUCCESS;
 
+#ifdef FREERTOS_USED
+	enum IRQn twi_irq;
+	if (p_twi == TWI0) {
+		twi_irq = TWI0_IRQn;
+	} else if (p_twi == TWI1) {
+		twi_irq = TWI1_IRQn;
+	} else {
+		return TWI_INVALID_ARGUMENT;
+	}
+#endif // FREERTOS_USED
+
 	/* Disable TWI interrupts */
 	p_twi->TWI_IDR = ~0UL;
 
 	/* Dummy read in status register */
 	p_twi->TWI_SR;
+
+#ifdef FREERTOS_USED
+	/* The interrupt priority  must not be higher (numerically less than)
+	configMAX_SYSCALL_INTERRUPT_PRIORITY. The lowest priority is
+	configKERNEL_INTERRUPT_PRIORITY. Both constants are already left-shifted,
+	but NVIC_SetPriority also applies left-shifting, so we have to unshift
+	them. Without left-shifting, the max. interrupt priority for syscalls is 5
+	and the kernel priority is 15. Again, remember that for the ARM Cortex M3,
+	higher values mean a lower priority (the highest priority is zero). */
+	NVIC_SetPriority(twi_irq, configMAX_SYSCALL_INTERRUPT_PRIORITY >> 4);
+	NVIC_EnableIRQ(twi_irq);
+#endif // FREERTOS_USED
 
 	/* Reset TWI peripheral */
 	twi_reset(p_twi);
@@ -258,7 +355,7 @@ uint32_t twi_master_read(Twi *p_twi, twi_packet_t *p_packet)
 	uint8_t *buffer = p_packet->buffer;
 	uint8_t stop_sent = 0;
 	uint32_t timeout = TWI_TIMEOUT;;
-	
+
 	/* Check argument */
 	if (cnt == 0) {
 		return TWI_INVALID_ARGUMENT;
@@ -283,23 +380,130 @@ uint32_t twi_master_read(Twi *p_twi, twi_packet_t *p_packet)
 		stop_sent = 0;
 	}
 
-	while (cnt > 0) {
+	/* If there is more than one byte to be received, use DMA to receive all
+	but the last byte. Before receiving the last byte, we have to set the stop
+	bit. */
+	while (cnt > 1) {
+		uint32_t rc = TWI_SUCCESS;
+		Pdc *p_pdc = twi_get_pdc_base(p_twi);
+		uint32_t remaining;
+		uint32_t transfer_size;
+		if (cnt > 0xFFFF) {
+			transfer_size = 0xFFFF;
+		} else {
+			transfer_size = cnt - 1;
+		}
+		remaining = transfer_size;
+		p_pdc->PERIPH_RPR = (uint32_t) buffer;
+		p_pdc->PERIPH_RCR = transfer_size;
+		p_pdc->PERIPH_PTCR = PERIPH_PTCR_RXTEN;
+		timeout = TWI_TIMEOUT;
+		while (1) {
+			status = p_twi->TWI_SR;
+			if (status & TWI_SR_NACK) {
+				rc = TWI_RECEIVE_NACK;
+				break;
+			}
+			if (status & TWI_SR_RXBUFF) {
+				break;
+			}
+#ifdef FREERTOS_USED
+			/* The timeout value of 20 ticks has been determined
+			experimentally. It is about the smallest value at which there are
+			no spurious timeouts. */
+			rc = twi_wait_for_interrupt(p_twi, TWI_SR_RXBUFF, 20);
+			if (rc == TWI_ERROR_TIMEOUT && p_pdc->PERIPH_RCR != remaining) {
+				/* If there was a timeout but the transfer has progressed,
+				there simply might be a lot of data to be transferred, so we
+				continue. */
+#	ifdef DEBUG_TWI
+				printf("twi_master_read DMA transfer still in progress.\r\n");
+#	endif // DEBUG_TWI
+				remaining = p_pdc->PERIPH_RCR;
+				continue;
+			}
+			if (rc != TWI_SUCCESS) {
+#	ifdef DEBUG_TWI
+				if (rc == TWI_ERROR_TIMEOUT) {
+					printf(
+							"twi_master_read timed out while waiting for DMA "
+							"transfer.\r\n");
+				} else {
+					printf(
+							"twi_master_read encountered error while waiting "
+							"for DMA transfer.\r\n");
+				}
+#	endif // DEBUG_TWI
+				break;
+			}
+#else // FREERTOS_USED
+			if (!timeout--) {
+				if (p_pdc->PERIPH_RCR != remaining) {
+					remaining = p_pdc->PERIPH_RCR;
+					timeout = TWI_TIMEOUT;
+#	ifdef DEBUG_TWI
+					printf(
+							"twi_master_read DMA transfer still in "
+							"progress.\r\n");
+#	endif // DEBUG_TWI
+					continue;
+				}
+				rc = TWI_ERROR_TIMEOUT;
+#	ifdef DEBUG_TWI
+				printf(
+						"twi_master_read timed out while waiting for DMA "
+						"transfer.\r\n");
+#	endif // DEBUG_TWI
+				break;
+			}
+#endif // FREERTOS_USED
+		}
+		p_pdc->PERIPH_PTCR = PERIPH_PTCR_RXTDIS;
+		if (rc != TWI_SUCCESS) {
+			p_pdc->PERIPH_RCR = 0;
+			return rc;
+		}
+		buffer += transfer_size;
+		cnt -= transfer_size;
+	}
+
+	/* Receive the last byte */
+	if (!stop_sent) {
+		p_twi->TWI_CR = TWI_CR_STOP;
+		stop_sent = 1;
+	}
+	while (cnt) {
 		status = p_twi->TWI_SR;
 		if (status & TWI_SR_NACK) {
 			return TWI_RECEIVE_NACK;
 		}
 
 		if (!timeout--) {
+#	ifdef DEBUG_TWI
+			printf("twi_master_read timed out while waiting for RXRDY.\r\n");
+#	endif // DEBUG_TWI
 			return TWI_ERROR_TIMEOUT;
 		}
 				
-		/* Last byte ? */
-		if (cnt == 1  && !stop_sent) {
-			p_twi->TWI_CR = TWI_CR_STOP;
-			stop_sent = 1;
-		}
-
 		if (!(status & TWI_SR_RXRDY)) {
+#ifdef FREERTOS_USED
+			uint32_t rc = twi_wait_for_interrupt(
+					p_twi, TWI_SR_NACK | TWI_SR_RXRDY, 2);
+			if (rc != TWI_SUCCESS) {
+#	ifdef DEBUG_TWI
+			if (rc == TWI_ERROR_TIMEOUT) {
+				printf(
+						"twi_master_read timed out while waiting for "
+						"RXRDY.\r\n");
+			} else {
+				printf(
+						"twi_master_read error occurred while waiting for "
+						"RXRDY.\r\n");
+			}
+#	endif // DEBUG_TWI
+				return rc;
+			}
+#endif // FREERTOS_USED
 			continue;
 		}
 		*buffer++ = p_twi->TWI_RHR;
@@ -310,6 +514,20 @@ uint32_t twi_master_read(Twi *p_twi, twi_packet_t *p_packet)
 
 	timeout = TWI_TIMEOUT;
 	while (!(p_twi->TWI_SR & TWI_SR_TXCOMP)) {
+#ifdef FREERTOS_USED
+		/* While timeouts occasionally happen here, experiments have shown that
+		increasing the timout does not reduce the number of these events, so we
+		use a rather short one. */
+		uint32_t rc = twi_wait_for_interrupt(p_twi, TWI_SR_TXCOMP, 1);
+		if (rc == TWI_ERROR_TIMEOUT) {
+#	ifdef DEBUG_TWI
+			printf("twi_master_read timed out while waiting for TXCOMP.\r\n");
+#	endif // DEBUG_TWI
+			return TWI_ERROR_TIMEOUT_COMP;
+		} else if (rc != TWI_SUCCESS) {
+			return rc;
+		}
+#endif // FREERTOS_USED
 		if (!timeout--) {
 #ifdef DEBUG_TWI
 			printf("twi_master_read timed out while waiting for TXCOMP.\r\n");
@@ -317,8 +535,6 @@ uint32_t twi_master_read(Twi *p_twi, twi_packet_t *p_packet)
 			return TWI_ERROR_TIMEOUT_COMP;
 		}
 	}
-
-	p_twi->TWI_SR;
 
 	return TWI_SUCCESS;
 }
@@ -355,7 +571,92 @@ uint32_t twi_master_write(Twi *p_twi, twi_packet_t *p_packet)
 	p_twi->TWI_IADR = 0;
 	p_twi->TWI_IADR = twi_mk_addr(p_packet->addr, p_packet->addr_length);
 
-	/* Send all bytes */
+	/* If there is more than one byte to be sent, use DMA to send all bytes */
+	while (cnt > 1) {
+		uint32_t rc = TWI_SUCCESS;
+		Pdc *p_pdc = twi_get_pdc_base(p_twi);
+		uint32_t remaining;
+		uint32_t transfer_size;
+		if (cnt > 0xFFFF) {
+			transfer_size = 0xFFFF;
+		} else {
+			transfer_size = cnt;
+		}
+		remaining = transfer_size;
+		p_pdc->PERIPH_TPR = (uint32_t) buffer;
+		p_pdc->PERIPH_TCR = transfer_size;
+		p_pdc->PERIPH_PTCR = PERIPH_PTCR_TXTEN;
+		timeout = TWI_TIMEOUT;
+		while (1) {
+			status = p_twi->TWI_SR;
+			if (status & TWI_SR_NACK) {
+				rc = TWI_RECEIVE_NACK;
+				break;
+			}
+			if (status & TWI_SR_TXBUFE) {
+				break;
+			}
+#ifdef FREERTOS_USED
+			/* The timeout value of 20 ticks has been determined
+			experimentally. It is about the smallest value at which there are
+			no spurious timeouts. */
+			rc = twi_wait_for_interrupt(p_twi, TWI_SR_TXBUFE, 20);
+			if (rc == TWI_ERROR_TIMEOUT && p_pdc->PERIPH_TCR != remaining) {
+				/* If there was a timeout but the transfer has progressed,
+				there simply might be a lot of data to be transferred, so we
+				continue. */
+#	ifdef DEBUG_TWI
+				printf("twi_master_write DMA transfer still in progress.\r\n");
+#	endif // DEBUG_TWI
+				remaining = p_pdc->PERIPH_TCR;
+				continue;
+			}
+			if (rc != TWI_SUCCESS) {
+#	ifdef DEBUG_TWI
+				if (rc == TWI_ERROR_TIMEOUT) {
+					printf(
+							"twi_master_write timed out while waiting for DMA "
+							"transfer.\r\n");
+				} else {
+					printf(
+							"twi_master_write encountered error while waiting "
+							"for DMA transfer.\r\n");
+				}
+#	endif // DEBUG_TWI
+				break;
+			}
+#else // FREERTOS_USED
+			if (!timeout--) {
+				if (p_pdc->PERIPH_TCR != remaining) {
+					remaining = p_pdc->PERIPH_TCR;
+					timeout = TWI_TIMEOUT;
+#	ifdef DEBUG_TWI
+					printf(
+							"twi_master_write DMA transfer still in "
+							"progress.\r\n");
+#	endif // DEBUG_TWI
+					continue;
+				}
+				rc = TWI_ERROR_TIMEOUT;
+#	ifdef DEBUG_TWI
+				printf(
+						"twi_master_write timed out while waiting for DMA "
+						"transfer.\r\n");
+#	endif // DEBUG_TWI
+				break;
+			}
+#endif // FREERTOS_USED
+		}
+		p_pdc->PERIPH_PTCR = PERIPH_PTCR_TXTDIS;
+		if (rc != TWI_SUCCESS) {
+			p_pdc->PERIPH_TCR = 0;
+			return rc;
+		}
+		buffer += transfer_size;
+		cnt -= transfer_size;
+	}
+
+	/* Send remaining byte */
 	while (cnt > 0) {
 		status = p_twi->TWI_SR;
 		if (status & TWI_SR_NACK) {
@@ -363,6 +664,24 @@ uint32_t twi_master_write(Twi *p_twi, twi_packet_t *p_packet)
 		}
 
 		if (!(status & TWI_SR_TXRDY)) {
+#ifdef FREERTOS_USED
+			uint32_t rc = twi_wait_for_interrupt(
+					p_twi, TWI_SR_NACK | TWI_SR_TXRDY, 2);
+			if (rc != TWI_SUCCESS) {
+#	ifdef DEBUG_TWI
+			if (rc == TWI_ERROR_TIMEOUT) {
+				printf(
+						"twi_master_write timed out while waiting for "
+						"TXRDY.\r\n");
+			} else {
+				printf(
+						"twi_master_write error occurred while waiting for "
+						"TXRDY.\r\n");
+			}
+#	endif // DEBUG_TWI
+				return rc;
+			}
+#endif // FREERTOS_USED
 			continue;
 		}
 		p_twi->TWI_THR = *buffer++;
@@ -379,11 +698,34 @@ uint32_t twi_master_write(Twi *p_twi, twi_packet_t *p_packet)
 		if (status & TWI_SR_TXRDY) {
 			break;
 		}
+#ifdef FREERTOS_USED
+		uint32_t rc = twi_wait_for_interrupt(
+				p_twi, TWI_SR_NACK | TWI_SR_TXRDY, 2);
+		if (rc != TWI_SUCCESS) {
+#	ifdef DEBUG_TWI
+			if (rc == TWI_ERROR_TIMEOUT) {
+				printf(
+						"twi_master_write timed out while waiting for "
+						"TXRDY.\r\n");
+			} else {
+				printf(
+						"twi_master_write error occurred while waiting for "
+						"TXRDY.\r\n");
+			}
+#	endif // DEBUG_TWI
+			return rc;
+		}
+#endif // FREERTOS_USED
 	}
 
 	p_twi->TWI_CR = TWI_CR_STOP;
 
 	while (!(p_twi->TWI_SR & TWI_SR_TXCOMP)) {
+		/* Even though it is possible, we do not wait using an interrupt here.
+		Experiments have shown that using an interrupt for waiting costs in the
+		order of 2-3 % performance, while this loop does typically not take
+		long, so that yielding to other tasks does not have any significant
+		benefit. */
 		if (!timeout--) {
 #ifdef DEBUG_TWI
 			printf("twi_master_write timed out while waiting for TXCOMP.\r\n");

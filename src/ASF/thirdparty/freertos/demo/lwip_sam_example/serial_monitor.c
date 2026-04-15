@@ -242,7 +242,7 @@ void task_serial(void *pvParameters)
 		      if (fpga_read_byte(x, &data)) {
 			printf(" failed");
 		      } else {
-		        printf(" %02hhX", data);
+		        printf(" %02X", (unsigned int) data);
 		      }
 		      x++;
 		      break;
@@ -303,7 +303,7 @@ void task_serial(void *pvParameters)
 		  if (fpga_read_byte(x, &data)) {
 		    printf(" failed");
 		  } else {
-		    printf(" %02hhX", data);
+		    printf(" %02X", (unsigned int) data);
 		  }
 		  break;
 		}
