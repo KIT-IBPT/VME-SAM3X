@@ -70,6 +70,10 @@
 #include "BasicTelnet.h"
 #endif
 
+#if (XVC_USED == 1)
+#include "xvc_server.h"
+#endif
+
 #if (SMTP_USED == 1)
 #include "BasicSMTP.h"
 #endif
@@ -294,6 +298,13 @@ portTASK_FUNCTION(vStartEthernetTask, pvParameters)
 			lwipBASIC_TELNET_SERVER_STACK_SIZE,
 			lwipBASIC_TELNET_SERVER_PRIORITY);
 #endif
+
+#if (XVC_USED == 1)
+	/* Create the XVC server task.  This uses the lwIP RTOS abstraction layer. */
+	sys_thread_new("XVC", vXvcServer, (void *)NULL,
+			lwipXVC_SERVER_STACK_SIZE,
+			lwipXVC_SERVER_PRIORITY);
+#endif // XVC_USED
 
 #if (UDP_USED == 1)
   printf("Create UDP Server task\r\n");

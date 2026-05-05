@@ -9,7 +9,11 @@
 #define PWRDWN         PIO_PA14_IDX
 #define USBPOWER       PIO_PC4_IDX
 #define MAC_PWR_DOWN   PIO_PB10_IDX
+#define XILTMS         PIO_PD0_IDX
+#define XILTCK         PIO_PD1_IDX
 #define JTAGSEL        PIO_PD2_IDX
+#define MMCTDO         PIO_PD3_IDX
+#define XILTDI         PIO_PD4_IDX
 #define NXILJTAG       PIO_PD5_IDX
 #define NPROG          PIO_PA0_IDX
 #define NINIT          PIO_PA1_IDX
